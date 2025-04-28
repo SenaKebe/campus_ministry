@@ -1,0 +1,331 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+  output          = "./prisma/generated/client"
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [pg_crypto, pg_trgm]
+}
+
+enum USERROLE {
+  TEACHER
+  STUDENT
+  REGISTRAR
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  LATE
+  EXCUSED
+}
+
+enum SemesterType {
+  FIRST
+  SECOND
+  SUMMER
+  WINTER
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  LOGIN
+  PASSWORD_CHANGE
+  GRADE_UPDATE
+}
+
+model User {
+  id                 Int       @id @default(autoincrement())
+  uuid               String    @unique @default(uuid()) @db.Uuid
+  role               USERROLE  @default(STUDENT)
+  email              String?   @unique @db.VarChar(255)
+  password           String    @db.VarChar(255)
+  salt               String    @db.VarChar(64)
+  resetToken         String?   @db.VarChar(64)
+  resetExpires       DateTime?
+  lastLoginAt        DateTime?
+  lastPasswordChange DateTime?
+  isActive           Boolean   @default(true)
+  deletedAt          DateTime?
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  attendance Attendance[]
+  profile    Profile?
+  teacher    Teacher?
+  student    Student?
+  auditLogs  AuditLog[]
+
+  @@index([email], name: "user_email_idx")
+  @@index([role], name: "user_role_idx")
+  @@index([resetToken], name: "user_reset_token_idx")
+}
+
+model Profile {
+  id          Int       @id @default(autoincrement())
+  userId      Int       @unique
+  phone       String?   @unique @db.VarChar(20)
+  firstName   String    @db.VarChar(100)
+  middleName  String?   @db.VarChar(100)
+  lastName    String    @db.VarChar(100)
+  gender      String?   @db.VarChar(50)
+  dateOfBirth DateTime?
+  address     String?   @db.Text
+  imageUrl    String?   @db.VarChar(512)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([firstName, lastName], name: "profile_name_idx")
+}
+
+model Batch {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique @db.VarChar(50)
+  year      Int
+  startDate DateTime
+  endDate   DateTime
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Relations
+  students        Student[]
+  courses         Course[]
+  semesters       Semester[]
+  attendance      Attendance[]
+  courseOfferings CourseOffering[]
+
+  @@index([year], name: "batch_year_idx")
+}
+
+model Semester {
+  id              Int              @id @default(autoincrement())
+  name            String           @db.VarChar(50)
+  code            String           @unique @db.VarChar(10)
+  type            SemesterType
+  startDate       DateTime
+  endDate         DateTime
+  isCurrent       Boolean          @default(false)
+  createdAt       DateTime         @default(now()) @map("created_at")
+  courseOfferings CourseOffering[]
+
+  // Relations
+  courses Course[]
+  batches Batch[]
+  // @@unique([name, year(startDate)], name: "semester_name_year_unique")
+
+  @@index([startDate, endDate], name: "semester_date_idx")
+}
+
+model Course {
+  id          Int      @id @default(autoincrement())
+  semesterId  Int?
+  code        String   @unique @db.VarChar(20)
+  name        String   @db.VarChar(100)
+  description String?  @db.Text
+  creditHours Int      @default(3)
+  createdAt   DateTime @default(now()) @map("created_at")
+  batches     Batch[]
+
+  // Relations
+  offerings CourseOffering[]
+  semester  Semester?        @relation(fields: [semesterId], references: [id])
+
+  @@index([code], name: "course_code_idx")
+}
+
+model CourseOffering {
+  id         Int     @id @default(autoincrement())
+  courseId   Int
+  teacherId  Int
+  batchId    Int
+  semesterId Int
+  isActive   Boolean @default(true)
+  capacity   Int?
+
+  // Relations
+  course       Course          @relation(fields: [courseId], references: [id])
+  teacher      Teacher         @relation(fields: [teacherId], references: [id])
+  batch        Batch           @relation(fields: [batchId], references: [id])
+  semester     Semester        @relation(fields: [semesterId], references: [id])
+  tests        Test[]
+  midExams     MidExam[]
+  finalExams   FinalExam[]
+  assignments  Assignment[]
+  totalResults TotalResult[]
+  schedules    ClassSchedule[]
+
+  @@unique([courseId, teacherId, batchId, semesterId], name: "offering_unique")
+  @@index([batchId], name: "offering_batch_idx")
+}
+
+model ClassSchedule {
+  id         Int      @id @default(autoincrement())
+  offeringId Int
+  dayOfWeek  Int
+  startTime  DateTime
+  endTime    DateTime
+  location   String?  @db.VarChar(100)
+
+  offering CourseOffering @relation(fields: [offeringId], references: [id])
+}
+
+model Attendance {
+  id           Int              @id @default(autoincrement())
+  studentId    Int
+  batchId      Int
+  status       AttendanceStatus
+  recordedById Int?
+  date         DateTime         @default(now())
+  notes        String?          @db.VarChar(255)
+  createdAt    DateTime         @default(now()) @map("created_at")
+
+  // Relations
+  student    Student @relation(fields: [studentId], references: [id])
+  batch      Batch   @relation(fields: [batchId], references: [id])
+  recordedBy User?   @relation(fields: [recordedById], references: [id])
+
+  @@unique([studentId, batchId, date], name: "attendance_unique")
+  @@index([studentId], name: "attendance_student_idx")
+  @@index([batchId], name: "attendance_batch_idx")
+}
+
+model Student {
+  id         Int      @id @default(autoincrement())
+  userId     Int?     @unique
+  batchId    Int
+  rollNumber Int?     @unique
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  // Relations
+  user         User?         @relation(fields: [userId], references: [id])
+  batch        Batch         @relation(fields: [batchId], references: [id])
+  attendance   Attendance[]
+  tests        Test[]
+  midExams     MidExam[]
+  finalExams   FinalExam[]
+  assignments  Assignment[]
+  totalResults TotalResult[]
+
+  @@index([batchId], name: "student_batch_idx")
+  @@index([rollNumber], name: "student_roll_idx")
+}
+
+model Teacher {
+  id        Int      @id @default(autoincrement())
+  userId    Int      @unique
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Relations
+  user      User             @relation(fields: [userId], references: [id])
+  offerings CourseOffering[]
+
+  @@index([userId], name: "teacher_user_idx")
+}
+
+model Test {
+  id        Int      @id @default(autoincrement())
+  courseId  Int
+  studentId Int
+  score     Float?
+  maxScore  Float    @default(100)
+  testDate  DateTime @default(now())
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Relations
+  course  CourseOffering @relation(fields: [courseId], references: [id])
+  student Student        @relation(fields: [studentId], references: [id])
+
+  @@index([courseId], name: "test_course_idx")
+  @@index([studentId], name: "test_student_idx")
+}
+
+model MidExam {
+  id        Int      @id @default(autoincrement())
+  courseId  Int
+  studentId Int
+  score     Float?
+  maxScore  Float    @default(100)
+  examDate  DateTime @default(now())
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Relations
+  course  CourseOffering @relation(fields: [courseId], references: [id])
+  student Student        @relation(fields: [studentId], references: [id])
+
+  @@index([courseId], name: "midexam_course_idx")
+}
+
+model FinalExam {
+  id        Int      @id @default(autoincrement())
+  courseId  Int
+  studentId Int
+  score     Float?
+  maxScore  Float    @default(100)
+  examDate  DateTime @default(now())
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Relations
+  course  CourseOffering @relation(fields: [courseId], references: [id])
+  student Student        @relation(fields: [studentId], references: [id])
+
+  @@index([courseId], name: "finalexam_course_idx")
+}
+
+model Assignment {
+  id          Int       @id @default(autoincrement())
+  courseId    Int
+  studentId   Int
+  score       Float?
+  maxScore    Float     @default(100)
+  dueDate     DateTime
+  submittedAt DateTime?
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  // Relations
+  course  CourseOffering @relation(fields: [courseId], references: [id])
+  student Student        @relation(fields: [studentId], references: [id])
+
+  @@index([courseId], name: "assignment_course_idx")
+}
+
+model TotalResult {
+  id           Int      @id @default(autoincrement())
+  studentId    Int
+  courseId     Int
+  totalScore   Float
+  gradeLetter  String?  @db.VarChar(2)
+  weightings   Json? // { exams: 0.4, assignments: 0.3, ... }
+  calculatedAt DateTime @default(now())
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  // Relations
+  student Student        @relation(fields: [studentId], references: [id])
+  course  CourseOffering @relation(fields: [courseId], references: [id])
+
+  @@unique([studentId, courseId], name: "result_student_course_unique")
+}
+
+model AuditLog {
+  id         Int         @id @default(autoincrement())
+  userId     Int
+  action     AuditAction
+  entityType String      @db.VarChar(50)
+  entityId   Int
+  metadata   Json
+  createdAt  DateTime    @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([entityType, entityId], name: "audit_entity_idx")
+  @@index([createdAt], name: "audit_timestamp_idx")
+}

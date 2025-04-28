@@ -1,0 +1,13 @@
+<html>
+  <head>
+    <title>Attendance Report</title>
+  </head>
+  <body>
+    <h1>Attendance Report for {{studentName}}</h1>
+    <ul>
+      {{#each records}}
+        <li>Date: {{this.date}} - Status: {{this.status}}</li>
+      {{/each}}
+    </ul>
+  </body>
+</html>

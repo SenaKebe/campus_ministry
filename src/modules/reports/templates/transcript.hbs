@@ -1,0 +1,26 @@
+<html>
+  <head>
+    <title>Academic Transcript</title>
+  </head>
+  <body>
+    <h1>Academic Transcript for {{studentName}}</h1>
+    <table border="1">
+      <thead>
+        <tr>
+          <th>Course</th>
+          <th>Semester</th>
+          <th>Score</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{#each grades}}
+          <tr>
+            <td>{{this.courseName}}</td>
+            <td>{{this.semesterName}}</td>
+            <td>{{this.score}}</td>
+          </tr>
+        {{/each}}
+      </tbody>
+    </table>
+  </body>
+</html>
